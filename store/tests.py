@@ -1,6 +1,8 @@
+from django.contrib.admin.sites import AdminSite
 from django.test import Client, TestCase
 from django.urls import reverse
 
+from .admin import ProductAdmin, ProductAdminForm
 from .models import Order, OrderItem, Product, User
 
 
@@ -16,6 +18,14 @@ class StoreAccessTests(TestCase):
 		cls.other_order = Order.objects.create(customer=cls.other_customer)
 		OrderItem.objects.create(order=cls.other_order, product=cls.product, unit_price="40.00")
 
+	def test_checkout_page_shows_summary_before_purchase(self):
+		self.client.login(username="cliente", password="teste-seguro-123")
+		response = self.client.get(reverse("store:checkout", args=(self.product.pk,)))
+		self.assertEqual(response.status_code, 200)
+		self.assertContains(response, "Resumo do pedido")
+		self.assertContains(response, "Jogo de teste")
+		self.assertContains(response, "Pix")
+
 	def test_customer_purchase_is_saved_and_shown_to_customer(self):
 		self.client.login(username="cliente", password="teste-seguro-123")
 		response = self.client.post(reverse("store:buy", args=(self.product.pk,)))
@@ -24,6 +34,9 @@ class StoreAccessTests(TestCase):
 		response = self.client.get(reverse("store:my_orders"))
 		self.assertContains(response, "Jogo de teste")
 		self.assertEqual(len(response.context["orders"]), 2)
+		last_order = Order.objects.filter(customer=self.customer).latest("created_at")
+		self.assertEqual(last_order.payment_method, Order.PaymentMethod.PIX)
+		self.assertTrue(last_order.pix_code)
 
 	def test_customer_cannot_view_manager_orders(self):
 		self.client.login(username="cliente", password="teste-seguro-123")
@@ -56,6 +69,39 @@ class StoreAccessTests(TestCase):
 		response = self.client.get(reverse("admin:store_order_changelist"))
 		self.assertEqual(response.status_code, 200)
 		self.assertContains(response, "40,00")
+
+	def test_product_admin_form_rejects_price_higher_than_previous_price(self):
+		form = ProductAdminForm(data={
+			"title": "Jogo Novo",
+			"slug": "",
+			"category": "RPG",
+			"description": "Descrição",
+			"price": "60.00",
+			"previous_price": "50.00",
+			"cover_url": "",
+			"featured": False,
+			"active": True,
+		})
+		self.assertFalse(form.is_valid())
+		self.assertIn("O preço atual não pode ser maior", str(form.non_field_errors()))
+
+	def test_product_admin_save_model_generates_slug_when_missing(self):
+		admin_instance = ProductAdmin(Product, AdminSite())
+		product = Product(title="Jogo de teste admin", category="Aventura", price="39.90")
+		form = ProductAdminForm(data={
+			"title": "Jogo de teste admin",
+			"slug": "",
+			"category": "Aventura",
+			"description": "",
+			"price": "39.90",
+			"previous_price": "",
+			"cover_url": "",
+			"featured": False,
+			"active": True,
+		})
+		self.assertTrue(form.is_valid())
+		admin_instance.save_model(None, product, form, change=False)
+		self.assertEqual(product.slug, "jogo-de-teste-admin")
 
 	def test_home_renders_database_catalog(self):
 		response = self.client.get(reverse("store:home"))

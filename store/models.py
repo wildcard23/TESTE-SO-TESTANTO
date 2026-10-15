@@ -41,15 +41,39 @@ class Order(models.Model):
 		COMPLETED = "completed", "Concluído"
 		CANCELLED = "cancelled", "Cancelado"
 
+	class PaymentMethod(models.TextChoices):
+		PIX = "pix", "Pix"
+		CARD = "card", "Cartão"
+		WALLET = "wallet", "Carteira"
+
+	class PaymentStatus(models.TextChoices):
+		PENDING = "pending", "Pendente"
+		PAID = "paid", "Pago"
+		CANCELLED = "cancelled", "Cancelado"
+
 	customer = models.ForeignKey(User, on_delete=models.PROTECT, related_name="orders")
 	status = models.CharField(max_length=20, choices=Status.choices, default=Status.NEW)
+	payment_method = models.CharField(max_length=20, choices=PaymentMethod.choices, default=PaymentMethod.PIX)
+	payment_status = models.CharField(max_length=20, choices=PaymentStatus.choices, default=PaymentStatus.PENDING)
+	pix_code = models.CharField(max_length=64, blank=True, default="")
 	created_at = models.DateTimeField(auto_now_add=True)
 
 	class Meta:
 		ordering = ("-created_at",)
 
+	def save(self, *args, **kwargs):
+		if self.payment_method == self.PaymentMethod.PIX and not self.pix_code:
+			if self.pk:
+				self.pix_code = f"GREENROOM-{self.pk}"
+			super().save(*args, **kwargs)
+			if not self.pix_code:
+				self.pix_code = f"GREENROOM-{self.pk}"
+				super().save(update_fields=["pix_code"])
+			return
+		super().save(*args, **kwargs)
+
 	def __str__(self):
-		return f"Pedido #{self.pk} — {self.customer}"
+		return f"Pedido #{self.pk} — {self.customer} ({self.get_payment_method_display()})"
 
 	@property
 	def total(self):

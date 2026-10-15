@@ -64,6 +64,16 @@ def register(request):
 	return render(request, "store/storefront.html", {"page": "register", "form": form})
 
 
+@login_required
+def checkout_product(request, product_id):
+	product = get_object_or_404(Product, pk=product_id, active=True)
+	return render(request, "store/storefront.html", {
+		"page": "checkout",
+		"product": product,
+		"total": product.price,
+	})
+
+
 @require_POST
 def buy_product(request, product_id):
 	if not request.user.is_authenticated:
@@ -71,9 +81,13 @@ def buy_product(request, product_id):
 		return redirect("store:login")
 	product = get_object_or_404(Product, pk=product_id, active=True)
 	with transaction.atomic():
-		order = Order.objects.create(customer=request.user)
+		order = Order.objects.create(
+			customer=request.user,
+			payment_method=Order.PaymentMethod.PIX,
+			payment_status=Order.PaymentStatus.PENDING,
+		)
 		OrderItem.objects.create(order=order, product=product, unit_price=product.price)
-	messages.success(request, f"Pedido #{order.pk} registrado. Acompanhe o status nesta página.")
+	messages.success(request, f"Pedido #{order.pk} registrado via Pix. Código: {order.pix_code}")
 	return redirect("store:my_orders")
 
 
